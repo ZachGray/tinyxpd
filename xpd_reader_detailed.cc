@@ -215,10 +215,11 @@ static void WriteDetailedXPDtoJSON(const tiny_xpd::XPDHeader &xpd,
             idx += 2;
           }
 
-          // Additional guide parameters (surface normal or tangent)
+          // Clump data (indices 27-29)
           if (idx + 2 < offset + floats_per_prim) {
-            out << "                \"surfaceNormal\": [" << prims[idx] << ", "
-                << prims[idx+1] << ", " << prims[idx+2] << "],\n";
+            out << "                \"clumpType\": " << prims[idx] << ",\n";
+            out << "                \"clumpGuideUV\": [" << prims[idx+1] << ", "
+                << prims[idx+2] << "],\n";
             idx += 3;
           }
 

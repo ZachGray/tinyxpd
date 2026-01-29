@@ -3,10 +3,13 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <vector>
+#include <map>
+#include <utility>
 
 // Alembic includes
 #include <Alembic/AbcGeom/All.h>
@@ -101,6 +104,12 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   std::vector<Imath::V3f> positions;
   std::vector<int32_t> nVertices;
   std::vector<float> widths;
+  std::vector<Imath::V2f> clumpGuideUVs;  // Per-curve clump guide UV
+  std::vector<int32_t> clumpIds;          // Per-curve clump ID (simplified 0-4)
+
+  // Map to assign clump IDs
+  std::map<std::pair<float, float>, int32_t> clumpUVtoID;
+  int32_t next_clump_id = 0;
 
   size_t total_curves = 0;
 
@@ -115,6 +124,8 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   positions.reserve(total_curves * xpd.numCVs);
   nVertices.reserve(total_curves);
   widths.reserve(total_curves * xpd.numCVs);
+  clumpGuideUVs.reserve(total_curves);
+  clumpIds.reserve(total_curves);
 
   // For each face
   for (size_t f = 0; f < xpd.numFaces; f++) {
@@ -157,6 +168,33 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
             nVertices.push_back(xpd.numCVs);
           }
 
+          // Extract clump guide UV and assign clump ID
+          float clump_uv_u = 0.0f;
+          float clump_uv_v = 0.0f;
+
+          // The clump guide UV is at indices 28-29 (absolute indices in the primitive)
+          if (floats_per_prim >= 30) {
+            clump_uv_u = prims[offset + 28];
+            clump_uv_v = prims[offset + 29];
+
+            // Round to avoid floating point comparison issues
+            float rounded_u = std::round(clump_uv_u * 1000000.0f) / 1000000.0f;
+            float rounded_v = std::round(clump_uv_v * 1000000.0f) / 1000000.0f;
+
+            clumpGuideUVs.push_back(Imath::V2f(clump_uv_u, clump_uv_v));
+
+            // Assign clump ID
+            auto uv_pair = std::make_pair(rounded_u, rounded_v);
+            if (clumpUVtoID.find(uv_pair) == clumpUVtoID.end()) {
+              clumpUVtoID[uv_pair] = next_clump_id++;
+            }
+            clumpIds.push_back(clumpUVtoID[uv_pair]);
+          } else {
+            // No clump data available
+            clumpGuideUVs.push_back(Imath::V2f(0.0f, 0.0f));
+            clumpIds.push_back(0);
+          }
+
           // Extract width data if available (for primSize=51)
           // Skip guide info to get to width data
           size_t remaining = (offset + floats_per_prim) - idx;
@@ -171,7 +209,7 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
             idx += 2;
           }
 
-          // Skip surface normal (3 floats)
+          // Skip clump type + clump guide UV (3 floats at indices 27-29)
           if (idx + 2 < offset + floats_per_prim) {
             idx += 3;
           }
@@ -205,6 +243,7 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
 
   std::cout << "\nWriting " << nVertices.size() << " curves with "
             << positions.size() << " CVs to Alembic...\n";
+  std::cout << "  Unique clumps: " << clumpUVtoID.size() << "\n";
 
   // Create the curve sample
   OCurvesSchema::Sample sample;
@@ -238,9 +277,48 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   // Write the sample
   schema.set(sample);
 
+  // Add clump data as arbitrary geometry parameters
+  // Create clump ID parameter (per-curve/uniform)
+  if (!clumpIds.empty()) {
+    OInt32GeomParam clumpIdParam(
+      schema.getPtr(),
+      "clumpId",
+      false,  // not indexed
+      kUniformScope,  // per-curve
+      1  // extent
+    );
+
+    OInt32GeomParam::Sample clumpIdSample(
+      Alembic::Abc::Int32ArraySample(clumpIds.data(), clumpIds.size()),
+      kUniformScope
+    );
+    clumpIdParam.set(clumpIdSample);
+  }
+
+  // Create clump guide UV parameter (per-curve/uniform)
+  if (!clumpGuideUVs.empty()) {
+    OV2fGeomParam clumpUVParam(
+      schema.getPtr(),
+      "clumpGuideUV",
+      false,  // not indexed
+      kUniformScope,  // per-curve
+      1  // extent
+    );
+
+    OV2fGeomParam::Sample clumpUVSample(
+      Alembic::Abc::V2fArraySample(
+        reinterpret_cast<const Imath::V2f*>(clumpGuideUVs.data()),
+        clumpGuideUVs.size()
+      ),
+      kUniformScope
+    );
+    clumpUVParam.set(clumpUVSample);
+  }
+
   std::cout << "Alembic output written successfully.\n";
   std::cout << "  Curves: " << nVertices.size() << "\n";
   std::cout << "  Total CVs: " << positions.size() << "\n";
+  std::cout << "  Clumps: " << clumpUVtoID.size() << "\n";
   std::cout << "  Basis: B-spline\n";
   std::cout << "  Type: Cubic\n";
   std::cout << "  Periodicity: Non-periodic\n";
