@@ -169,13 +169,19 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
           }
 
           // Extract clump guide UV and assign clump ID
+          // The clump guide UV location depends on the number of CVs:
+          // Data layout: [prim_id(1)] [surface_uv(2)] [cv_positions(numCVs*3)]
+          //              [guide_info(7)] [guide_uv(2)] [clump_type(1)] [clump_guide_uv(2)] ...
           float clump_uv_u = 0.0f;
           float clump_uv_v = 0.0f;
 
-          // The clump guide UV is at indices 28-29 (absolute indices in the primitive)
-          if (floats_per_prim >= 30) {
-            clump_uv_u = prims[offset + 28];
-            clump_uv_v = prims[offset + 29];
+          // Calculate offset: 1 (prim_id) + 2 (surface_uv) + numCVs*3 (positions) +
+          //                   7 (guide_info) + 2 (guide_uv) + 1 (clump_type)
+          size_t clump_uv_offset = 1 + 2 + (xpd.numCVs * 3) + 7 + 2 + 1;
+
+          if (clump_uv_offset + 1 < floats_per_prim) {
+            clump_uv_u = prims[offset + clump_uv_offset];
+            clump_uv_v = prims[offset + clump_uv_offset + 1];
 
             // Round to avoid floating point comparison issues
             float rounded_u = std::round(clump_uv_u * 1000000.0f) / 1000000.0f;
