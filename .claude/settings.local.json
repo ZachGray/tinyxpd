@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"out\\\\build\\\\x64-Debug\\\\xpd_reader_example.exe\":*)",
+      "Bash(cmake --build:*)",
+      "Bash(\"build\\\\Debug\\\\xpd_reader_detailed.exe\":*)",
+      "Bash(ls:*)",
+      "Bash(\"build\\\\Debug\\\\xpd_reader_detailed.exe\" samplessample.xpd)",
+      "Bash(python:*)"
+    ]
+  }
+}

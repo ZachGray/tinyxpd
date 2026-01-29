@@ -1,0 +1,211 @@
+{
+  "header": {
+    "fileVersion": 0,
+    "primType": "Spline",
+    "primVersion": 3,
+    "time": 1,
+    "numCVs": 5,
+    "coordSpace": "Object",
+    "numBlocks": 1,
+    "numFaces": 13
+  },
+  "blocks": [
+    {
+      "name": "BakedGroom",
+      "primSize": 25
+    }
+  ],
+  "keys": [
+  ],
+  "faces": [
+    {
+      "faceIndex": 0,
+      "faceId": 0,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 1,
+      "faceId": 1,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 2,
+      "faceId": 2,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 3,
+      "faceId": 3,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 4,
+      "faceId": 4,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 5,
+      "faceId": 5,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 6,
+      "faceId": 6,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 7,
+      "faceId": 7,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 8,
+      "faceId": 8,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 9,
+      "faceId": 9,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 10,
+      "faceId": 10,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 11,
+      "faceId": 11,
+      "numPrims": 0,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+          ]
+        }
+      ]
+    },
+    {
+      "faceIndex": 12,
+      "faceId": 12,
+      "numPrims": 1,
+      "blocks": [
+        {
+          "blockName": "BakedGroom",
+          "primitives": [
+            {
+              "primitiveId": 0,
+              "surfaceUV": [0.347729, 0.430220],
+              "cvs": [
+                {
+                  "cvId": 0,
+                  "position": [-0.265227, -0.000000, 0.356978]
+                },
+                {
+                  "cvId": 1,
+                  "position": [-0.265227, 0.250000, 0.356978]
+                },
+                {
+                  "cvId": 2,
+                  "position": [-0.265227, 0.500000, 0.356978]
+                },
+                {
+                  "cvId": 3,
+                  "position": [-0.265227, 0.750000, 0.356978]
+                },
+                {
+                  "cvId": 4,
+                  "position": [-0.265227, 1.000000, 0.356978]
+                }
+              ],
+              "guideInfo": {
+                "guideId": 1,
+                "guideWeight": 0.100000,
+                "guideType": 0,
+                "guideDirection": [0.000000, 1.000000, 0.000000],
+                "guidePrimRef": 0,
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
