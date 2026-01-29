@@ -6,7 +6,10 @@
       "Bash(\"build\\\\Debug\\\\xpd_reader_detailed.exe\":*)",
       "Bash(ls:*)",
       "Bash(\"build\\\\Debug\\\\xpd_reader_detailed.exe\" samplessample.xpd)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(cmake:*)",
+      "Bash(nmake:*)",
+      "Bash(./out/build/x64-Release/Release/xpd_reader_abc.exe:*)"
     ]
   }
 }

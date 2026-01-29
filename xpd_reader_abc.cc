@@ -245,6 +245,37 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
             << positions.size() << " CVs to Alembic...\n";
   std::cout << "  Unique clumps: " << clumpUVtoID.size() << "\n";
 
+  // WORKAROUND: Store clump_id in UV channel
+  //
+  // Ideally we would use Alembic user properties (via schema.getUserProperties()) to store
+  // custom attributes like clump_id. However, Houdini's Alembic importer does not read
+  // user properties on OCurves geometry - it only reads the built-in schema properties.
+  //
+  // As a workaround, we use the UV attribute (which is part of the OCurves schema) to
+  // store the clump_id. In Houdini, this will appear as:
+  //   - uv[0] or @uv.x = clump_id (integer 0-N representing which clump this curve belongs to)
+  //   - uv[1] or @uv.y = curve_index (curve number, stored for reference/debugging)
+  //   - uv[2] or @uv.z = 0.0 (Houdini expands 2D UVs to 3D)
+  //
+  // If you need actual UV coordinates, you'll need to use a different approach or
+  // generate UVs in Houdini after import.
+
+  std::vector<Imath::V2f> uvs;
+  uvs.reserve(positions.size());
+
+  for (size_t i = 0; i < nVertices.size(); i++) {
+    int numVerts = nVertices[i];
+    int32_t curveClumpId = clumpIds[i];
+
+    // Repeat the same clump_id for all vertices in this curve
+    for (int v = 0; v < numVerts; v++) {
+      uvs.push_back(Imath::V2f(
+        static_cast<float>(curveClumpId),  // U component = clump_id
+        static_cast<float>(i)              // V component = curve_index (for debugging)
+      ));
+    }
+  }
+
   // Create the curve sample
   OCurvesSchema::Sample sample;
 
@@ -274,46 +305,22 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
     sample.setWidths(widthSample);
   }
 
-  // Write the sample
-  schema.set(sample);
-
-  // Add clump data as arbitrary geometry parameters
-  // Create clump ID parameter (per-curve/uniform)
-  if (!clumpIds.empty()) {
-    OInt32GeomParam clumpIdParam(
-      schema.getPtr(),
-      "clumpId",
-      false,  // not indexed
-      kUniformScope,  // per-curve
-      1  // extent
-    );
-
-    OInt32GeomParam::Sample clumpIdSample(
-      Alembic::Abc::Int32ArraySample(clumpIds.data(), clumpIds.size()),
-      kUniformScope
-    );
-    clumpIdParam.set(clumpIdSample);
-  }
-
-  // Create clump guide UV parameter (per-curve/uniform)
-  if (!clumpGuideUVs.empty()) {
-    OV2fGeomParam clumpUVParam(
-      schema.getPtr(),
-      "clumpGuideUV",
-      false,  // not indexed
-      kUniformScope,  // per-curve
-      1  // extent
-    );
-
-    OV2fGeomParam::Sample clumpUVSample(
+  // Set UVs (per-vertex) - WORKAROUND: stores clump_id in U component
+  // See comment above for explanation of why we use UV instead of user properties
+  if (!uvs.empty()) {
+    OV2fGeomParam::Sample uvSample(
       Alembic::Abc::V2fArraySample(
-        reinterpret_cast<const Imath::V2f*>(clumpGuideUVs.data()),
-        clumpGuideUVs.size()
+        reinterpret_cast<const Imath::V2f*>(uvs.data()),
+        uvs.size()
       ),
-      kUniformScope
+      kVertexScope
     );
-    clumpUVParam.set(clumpUVSample);
+    sample.setUVs(uvSample);
+    std::cout << "  UVs written with clump data (U=clump_id, V=curve_index): " << uvs.size() << " values\n";
   }
+
+  // Write the main sample
+  schema.set(sample);
 
   std::cout << "Alembic output written successfully.\n";
   std::cout << "  Curves: " << nVertices.size() << "\n";
