@@ -111,6 +111,10 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   std::map<std::pair<float, float>, int32_t> clumpUVtoID;
   int32_t next_clump_id = 0;
 
+  // Track correlation between clumpType and invalid width data
+  std::map<int, int> invalid_width_by_face_id;
+  std::map<int, int> total_by_face_id;
+
   size_t total_curves = 0;
 
   // Count total curves first
@@ -149,7 +153,8 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
         if (offset + floats_per_prim <= prims.size()) {
           size_t idx = offset;
 
-          // Skip primitive ID
+          // Get primitive ID for debugging
+          float prim_id = prims[offset];
           idx++;
 
           // Skip surface UV
@@ -157,29 +162,67 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
             idx += 2;
           }
 
-          // Extract CV positions
+          // Extract CV positions with duplicated endpoints for Catmull-Rom interpolation
           if (xpd.numCVs > 0 && idx + xpd.numCVs * 3 <= offset + floats_per_prim) {
+            // Duplicate first CV (for Catmull-Rom endpoint interpolation)
+            positions.push_back(Imath::V3f(prims[idx], prims[idx + 1], prims[idx + 2]));
+
+            // Extract all CVs
             for (size_t cv = 0; cv < xpd.numCVs; cv++) {
               float x = prims[idx++];
               float y = prims[idx++];
               float z = prims[idx++];
               positions.push_back(Imath::V3f(x, y, z));
             }
-            nVertices.push_back(xpd.numCVs);
+
+            // Duplicate last CV (for Catmull-Rom endpoint interpolation)
+            positions.push_back(Imath::V3f(prims[idx - 3], prims[idx - 2], prims[idx - 1]));
+
+            // Total vertices = original CVs + 2 duplicates
+            nVertices.push_back(xpd.numCVs + 2);
           }
 
           // Extract clump guide UV and assign clump ID
-          // The clump guide UV location depends on the number of CVs:
           // Data layout: [prim_id(1)] [surface_uv(2)] [cv_positions(numCVs*3)]
-          //              [guide_info(7)] [guide_uv(2)] [clump_type(1)] [clump_guide_uv(2)] ...
+          //              [guide_info(7)] [guide_uv(2)] [face_id(1)] [clump_guide_uv(2)]
+          //              [cv_parameters(numCVs*3)] [width_scale(base, tip, ...)] ...
           float clump_uv_u = 0.0f;
           float clump_uv_v = 0.0f;
+          float face_id = 0.0f;
 
-          // Calculate offset: 1 (prim_id) + 2 (surface_uv) + numCVs*3 (positions) +
-          //                   7 (guide_info) + 2 (guide_uv) + 1 (clump_type)
-          size_t clump_uv_offset = 1 + 2 + (xpd.numCVs * 3) + 7 + 2 + 1;
+          // Calculate face_id offset: 1 (prim_id) + 2 (surface_uv) + numCVs*3 (positions) +
+          //                              7 (guide_info) + 2 (guide_uv)
+          size_t face_id_offset = 1 + 2 + (xpd.numCVs * 3) + 7 + 2;
 
-          if (clump_uv_offset + 1 < floats_per_prim) {
+          // Extract face_id
+          if (face_id_offset < floats_per_prim) {
+            face_id = prims[offset + face_id_offset];
+          }
+
+          // Calculate clump_guide_uv offset: face_id_offset + 1
+          size_t clump_uv_offset = face_id_offset + 1;
+
+          // Calculate cv_parameters offset and check if guide data is valid
+          size_t cv_params_offset = 1 + 2 + (xpd.numCVs * 3) + 7 + 2 + 1 + 2;
+          size_t cv_params_count = xpd.numCVs * 3;
+
+          // Check if CV parameters section is all zeros (indicates no guide associated)
+          bool has_valid_guide = false;
+          if (cv_params_offset + cv_params_count <= floats_per_prim) {
+            for (size_t i = 0; i < cv_params_count; i++) {
+              if (prims[offset + cv_params_offset + i] != 0.0f) {
+                has_valid_guide = true;
+                break;
+              }
+            }
+          }
+
+          if (!has_valid_guide) {
+            // No guide associated - assign to clump_id -1 for later culling
+            clumpGuideUVs.push_back(Imath::V2f(0.0f, 0.0f));
+            clumpIds.push_back(-1);
+          } else if (clump_uv_offset + 1 < floats_per_prim) {
+            // Valid guide - extract clump UV and assign clump ID
             clump_uv_u = prims[offset + clump_uv_offset];
             clump_uv_v = prims[offset + clump_uv_offset + 1];
 
@@ -189,7 +232,7 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
 
             clumpGuideUVs.push_back(Imath::V2f(clump_uv_u, clump_uv_v));
 
-            // Assign clump ID
+            // Assign clump ID based on unique clumpGuideUV
             auto uv_pair = std::make_pair(rounded_u, rounded_v);
             if (clumpUVtoID.find(uv_pair) == clumpUVtoID.end()) {
               clumpUVtoID[uv_pair] = next_clump_id++;
@@ -198,37 +241,33 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
           } else {
             // No clump data available
             clumpGuideUVs.push_back(Imath::V2f(0.0f, 0.0f));
-            clumpIds.push_back(0);
+            clumpIds.push_back(-1);
           }
 
-          // Extract width data if available (for primSize=51)
-          // Skip guide info to get to width data
-          size_t remaining = (offset + floats_per_prim) - idx;
+          // Extract width data
+          // Data layout: [prim_id(1)] [surface_uv(2)] [cv_positions(numCVs*3)]
+          //              [guide_info(7)] [guide_uv(2)] [face_id(1)] [clump_guide_uv(2)]
+          //              [cv_parameters(numCVs*3)] [width_scale(base, tip, param1, param2)...] ...
 
-          // Skip guide data (7 floats)
-          if (remaining >= 7) {
-            idx += 7;
+          // Calculate width offset: cv_params_offset + cv_params_count
+          size_t width_offset = cv_params_offset + cv_params_count;
+
+          // Track total curves by clumpType
+          int face_id_int = static_cast<int>(face_id);
+          total_by_face_id[face_id_int]++;
+
+          // Track curves without guide data
+          if (!has_valid_guide) {
+            invalid_width_by_face_id[face_id_int]++;
           }
 
-          // Skip guide UV (2 floats)
-          if (remaining >= 9) {
-            idx += 2;
-          }
+          // Try to read width data regardless of guide status
+          if (width_offset + 1 < floats_per_prim) {
+            float base_width = prims[offset + width_offset];
+            float tip_width = prims[offset + width_offset + 1];
 
-          // Skip clump type + clump guide UV (3 floats at indices 27-29)
-          if (idx + 2 < offset + floats_per_prim) {
-            idx += 3;
-          }
-
-          // Skip CV parameters (15 floats for 5 CVs)
-          if (idx + xpd.numCVs * 3 <= offset + floats_per_prim) {
-            idx += xpd.numCVs * 3;
-          }
-
-          // Extract width/scale parameters
-          if (idx + 4 <= offset + floats_per_prim) {
-            float base_width = prims[idx];
-            float tip_width = prims[idx + 1];
+            // Duplicate first width (for Catmull-Rom endpoint interpolation)
+            widths.push_back(base_width);
 
             // Interpolate width along the curve (per-vertex)
             for (size_t cv = 0; cv < xpd.numCVs; cv++) {
@@ -236,11 +275,20 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
               float width = base_width * (1.0f - t) + tip_width * t;
               widths.push_back(width);
             }
+
+            // Duplicate last width (for Catmull-Rom endpoint interpolation)
+            widths.push_back(tip_width);
           } else {
-            // No width data, use default width of 0.01
+            // No width data available, use default width of 0.01
+            // Duplicate first width
+            widths.push_back(0.01f);
+
             for (size_t cv = 0; cv < xpd.numCVs; cv++) {
               widths.push_back(0.01f);
             }
+
+            // Duplicate last width
+            widths.push_back(0.01f);
           }
         }
       }
@@ -250,6 +298,20 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   std::cout << "\nWriting " << nVertices.size() << " curves with "
             << positions.size() << " CVs to Alembic...\n";
   std::cout << "  Unique clumps: " << clumpUVtoID.size() << "\n";
+
+  // Report correlation between face ID and curves without guide data
+  std::cout << "\nFace ID analysis:\n";
+  for (const auto& entry : total_by_face_id) {
+    int face = entry.first;
+    int total = entry.second;
+    int no_guide = invalid_width_by_face_id[face];
+    std::cout << "  Face " << face << ": " << total << " curves, "
+              << no_guide << " without guide data";
+    if (no_guide > 0) {
+      std::cout << " (" << (100.0f * no_guide / total) << "%)";
+    }
+    std::cout << "\n";
+  }
 
   // WORKAROUND: Store clump_id in UV channel
   //
@@ -298,9 +360,9 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   ));
 
   // Set curve type and wrap
-  sample.setType(kCubic);           // XGen splines are cubic
-  sample.setWrap(kNonPeriodic);     // Non-periodic (open curves)
-  sample.setBasis(kBsplineBasis);   // B-spline basis (common for hair/fur)
+  sample.setType(kCubic);               // XGen splines are cubic
+  sample.setWrap(kNonPeriodic);         // Non-periodic (open curves)
+  sample.setBasis(kBezierBasis);        // Bezier passes through endpoints
 
   // Set widths (per-vertex)
   if (!widths.empty()) {
@@ -332,7 +394,7 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   std::cout << "  Curves: " << nVertices.size() << "\n";
   std::cout << "  Total CVs: " << positions.size() << "\n";
   std::cout << "  Clumps: " << clumpUVtoID.size() << "\n";
-  std::cout << "  Basis: B-spline\n";
+  std::cout << "  Basis: Bezier\n";
   std::cout << "  Type: Cubic\n";
   std::cout << "  Periodicity: Non-periodic\n";
 }

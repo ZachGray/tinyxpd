@@ -1,0 +1,20 @@
+Reading XPD file: box_clump2.xpd
+Output will be written to: box_clump2.json
+
+File info:
+  primType: Spline
+  primVersion: 3
+  numCVs: 10
+  numFaces: 6
+  numBlocks: 1
+
+Processing face 0 (faceId=0, 238 primitives)...
+Processing face 1 (faceId=1, 250 primitives)...
+Processing face 2 (faceId=2, 250 primitives)...
+Processing face 3 (faceId=3, 250 primitives)...
+Processing face 4 (faceId=4, 241 primitives)...
+Processing face 5 (faceId=5, 193 primitives)...
+
+JSON output written successfully.
+
+Done! Output saved to: box_clump2.json

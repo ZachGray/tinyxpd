@@ -9,7 +9,15 @@
       "Bash(python:*)",
       "Bash(cmake:*)",
       "Bash(nmake:*)",
-      "Bash(./out/build/x64-Release/Release/xpd_reader_abc.exe:*)"
+      "Bash(./out/build/x64-Release/Release/xpd_reader_abc.exe:*)",
+      "Bash(./out/build/x64-Release/Release/xpd_reader_detailed.exe:*)",
+      "Bash(for file in box.xpd box_dense.xpd box_clump2.xpd)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(done)",
+      "Bash(del /F /Q CMakeCache.txt)",
+      "Bash(./xpd_reader_abc.exe:*)",
+      "Bash(dir:*)",
+      "Bash(x64-Release\\\\xpd_reader_abc.exe:*)"
     ]
   }
 }
