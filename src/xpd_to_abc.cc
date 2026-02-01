@@ -10,6 +10,8 @@
 #include <vector>
 #include <map>
 #include <utility>
+#include <iomanip>
+#include <sstream>
 
 // Alembic includes
 #include <Alembic/AbcGeom/All.h>
@@ -17,6 +19,97 @@
 
 using namespace tiny_xpd;
 using namespace Alembic::AbcGeom;
+
+// Command-line options
+struct Options {
+  std::string input_file;
+  std::string output_file;
+  bool debug_json = false;
+  bool json_only = false;
+  bool info_only = false;
+  bool show_help = false;
+};
+
+static void printUsage(const char* prog_name) {
+  std::cout << "Usage: " << prog_name << " <input.xpd> [output] [options]\n\n";
+  std::cout << "Converts XPD spline files to Alembic format with optional JSON debug output.\n\n";
+  std::cout << "Arguments:\n";
+  std::cout << "  input.xpd           Input XPD file\n";
+  std::cout << "  output              Output filename (optional)\n";
+  std::cout << "                      Default: <input_basename>.abc\n\n";
+  std::cout << "Options:\n";
+  std::cout << "  --debug-json        Generate debug JSON file alongside ABC output\n";
+  std::cout << "                      Output: <input_basename>_debug.json\n";
+  std::cout << "  --json-only         Output JSON only (no ABC conversion)\n";
+  std::cout << "                      Output: <input_basename>.json\n";
+  std::cout << "  --info              Print XPD file info and exit\n";
+  std::cout << "  --help              Show this help message\n\n";
+  std::cout << "Examples:\n";
+  std::cout << "  " << prog_name << " input.xpd\n";
+  std::cout << "      Convert to input.abc\n\n";
+  std::cout << "  " << prog_name << " input.xpd output.abc\n";
+  std::cout << "      Convert to output.abc\n\n";
+  std::cout << "  " << prog_name << " input.xpd output.abc --debug-json\n";
+  std::cout << "      Convert to output.abc and generate input_debug.json\n\n";
+  std::cout << "  " << prog_name << " input.xpd --json-only\n";
+  std::cout << "      Generate input.json only\n\n";
+  std::cout << "  " << prog_name << " input.xpd --info\n";
+  std::cout << "      Print file information\n";
+}
+
+static Options parseCommandLine(int argc, char** argv) {
+  Options opts;
+
+  if (argc < 2) {
+    opts.show_help = true;
+    return opts;
+  }
+
+  // First argument is always input file
+  opts.input_file = argv[1];
+
+  // Check for --help first
+  for (int i = 1; i < argc; i++) {
+    std::string arg = argv[i];
+    if (arg == "--help" || arg == "-h") {
+      opts.show_help = true;
+      return opts;
+    }
+  }
+
+  // Parse remaining arguments
+  int next_arg = 2;
+  for (int i = 2; i < argc; i++) {
+    std::string arg = argv[i];
+
+    if (arg == "--debug-json") {
+      opts.debug_json = true;
+    } else if (arg == "--json-only") {
+      opts.json_only = true;
+    } else if (arg == "--info") {
+      opts.info_only = true;
+    } else if (arg[0] != '-' && opts.output_file.empty()) {
+      // Non-flag argument - must be output filename
+      opts.output_file = arg;
+    }
+  }
+
+  // Generate default output filename if not specified
+  if (opts.output_file.empty() && !opts.info_only) {
+    size_t last_dot = opts.input_file.find_last_of('.');
+    std::string base = (last_dot != std::string::npos) ?
+                       opts.input_file.substr(0, last_dot) :
+                       opts.input_file;
+
+    if (opts.json_only) {
+      opts.output_file = base + ".json";
+    } else {
+      opts.output_file = base + ".abc";
+    }
+  }
+
+  return opts;
+}
 
 static std::string PrintPrimType(Xpd::PrimType prim) {
   if (prim == Xpd::PrimType::Point) {
@@ -79,6 +172,220 @@ static void GetPrimData(const tiny_xpd::XPDHeader &xpd, const std::vector<uint8_
   memcpy(buffer.data(), xpd_data.data() + src_offset, num_bytes);
 
   prims->insert(prims->end(), buffer.begin(), buffer.end());
+}
+
+// Helper function to escape strings for JSON
+static std::string jsonEscape(const std::string& str) {
+  std::ostringstream ss;
+  for (char c : str) {
+    switch (c) {
+      case '"': ss << "\\\""; break;
+      case '\\': ss << "\\\\"; break;
+      case '\n': ss << "\\n"; break;
+      case '\r': ss << "\\r"; break;
+      case '\t': ss << "\\t"; break;
+      default: ss << c; break;
+    }
+  }
+  return ss.str();
+}
+
+static void WriteDetailedXPDtoJSON(const tiny_xpd::XPDHeader &xpd,
+                                   const std::vector<uint8_t> &xpd_data,
+                                   const std::string& output_filename) {
+
+  std::ofstream out(output_filename);
+  if (!out.is_open()) {
+    std::cerr << "Failed to open output file: " << output_filename << "\n";
+    return;
+  }
+
+  std::cout << "Generating debug JSON: " << output_filename << "\n";
+
+  // Start JSON document
+  out << "{\n";
+
+  // Header information
+  out << "  \"header\": {\n";
+  out << "    \"fileVersion\": " << int(xpd.fileVersion) << ",\n";
+  out << "    \"primType\": \"" << PrintPrimType(xpd.primType) << "\",\n";
+  out << "    \"primVersion\": " << int(xpd.primVersion) << ",\n";
+  out << "    \"time\": " << xpd.time << ",\n";
+  out << "    \"numCVs\": " << xpd.numCVs << ",\n";
+  out << "    \"coordSpace\": \"" << PrintCoordSpace(xpd.coordSpace) << "\",\n";
+  out << "    \"numBlocks\": " << xpd.numBlocks << ",\n";
+  out << "    \"numFaces\": " << xpd.numFaces << "\n";
+  out << "  },\n";
+
+  // Blocks information
+  out << "  \"blocks\": [\n";
+  for (size_t i = 0; i < xpd.block.size(); i++) {
+    out << "    {\n";
+    out << "      \"name\": \"" << jsonEscape(xpd.block[i]) << "\",\n";
+    out << "      \"primSize\": " << xpd.primSize[i] << "\n";
+    out << "    }" << (i < xpd.block.size() - 1 ? "," : "") << "\n";
+  }
+  out << "  ],\n";
+
+  // Keys information
+  out << "  \"keys\": [\n";
+  for (size_t i = 0; i < xpd.key.size(); i++) {
+    out << "    \"" << jsonEscape(xpd.key[i]) << "\""
+        << (i < xpd.key.size() - 1 ? "," : "") << "\n";
+  }
+  out << "  ],\n";
+
+  // Faces and primitives data
+  out << "  \"faces\": [\n";
+
+  // For each face
+  for (size_t f = 0; f < xpd.numFaces; f++) {
+    out << "    {\n";
+    out << "      \"faceIndex\": " << f << ",\n";
+    out << "      \"faceId\": " << xpd.faceid[f] << ",\n";
+    out << "      \"numPrims\": " << xpd.numPrims[f] << ",\n";
+    out << "      \"blocks\": [\n";
+
+    // For each block in this face
+    for (size_t b = 0; b < xpd.numBlocks; b++) {
+      out << "        {\n";
+      out << "          \"blockName\": \"" << jsonEscape(xpd.block[b]) << "\",\n";
+      out << "          \"primitives\": [\n";
+
+      std::vector<float> prims;
+      GetPrimData(xpd, xpd_data, f, b, &prims);
+
+      // Parse primitives based on primSize
+      size_t floats_per_prim = xpd.primSize[b];
+      size_t num_prims_in_block = xpd.numPrims[f];
+
+      for (size_t p = 0; p < num_prims_in_block; p++) {
+        size_t offset = p * floats_per_prim;
+
+        out << "            {\n";
+
+        if (offset + floats_per_prim <= prims.size()) {
+          size_t idx = offset;
+
+          // Primitive ID
+          int prim_id = int(prims[idx++]);
+          out << "              \"primitiveId\": " << prim_id << ",\n";
+
+          // Surface UV
+          if (idx + 1 < offset + floats_per_prim) {
+            out << "              \"surfaceUV\": [" << std::fixed << std::setprecision(6)
+                << prims[idx] << ", " << prims[idx+1] << "],\n";
+            idx += 2;
+          }
+
+          // CV data
+          if (xpd.numCVs > 0 && idx + xpd.numCVs * 3 <= offset + floats_per_prim) {
+            out << "              \"cvs\": [\n";
+            for (size_t cv = 0; cv < xpd.numCVs; cv++) {
+              out << "                {\n";
+              out << "                  \"cvId\": " << cv << ",\n";
+              out << "                  \"position\": [" << prims[idx] << ", "
+                  << prims[idx+1] << ", " << prims[idx+2] << "]\n";
+              out << "                }" << (cv < xpd.numCVs - 1 ? "," : "") << "\n";
+              idx += 3;
+            }
+            out << "              ],\n";
+          }
+
+          // Guide info
+          out << "              \"guideInfo\": {\n";
+
+          size_t remaining = (offset + floats_per_prim) - idx;
+
+          // Parse guide data based on XGen spline format
+          if (remaining >= 7) {
+            out << "                \"guideId\": " << int(prims[idx++]) << ",\n";
+            out << "                \"guideWeight\": " << prims[idx++] << ",\n";
+            out << "                \"guideType\": " << int(prims[idx++]) << ",\n";
+            out << "                \"guideDirection\": [" << prims[idx] << ", "
+                << prims[idx+1] << ", " << prims[idx+2] << "],\n";
+            idx += 3;
+            out << "                \"guidePrimRef\": " << int(prims[idx++]) << ",\n";
+          }
+
+          // Guide UV coordinates
+          if (remaining >= 9) {
+            out << "                \"guideUV\": [" << prims[idx] << ", " << prims[idx+1] << "],\n";
+            idx += 2;
+          }
+
+          // Clump data (indices 27-29)
+          if (idx + 2 < offset + floats_per_prim) {
+            out << "                \"clumpType\": " << prims[idx] << ",\n";
+            out << "                \"clumpGuideUV\": [" << prims[idx+1] << ", "
+                << prims[idx+2] << "],\n";
+            idx += 3;
+          }
+
+          // CV parameters (t-values and widths along spline)
+          if (idx + xpd.numCVs * 3 <= offset + floats_per_prim) {
+            out << "                \"cvParameters\": [\n";
+            for (size_t cv = 0; cv < xpd.numCVs; cv++) {
+              out << "                  {\n";
+              out << "                    \"cvId\": " << cv << ",\n";
+              out << "                    \"param1\": " << prims[idx] << ",\n";
+              out << "                    \"t\": " << prims[idx+1] << ",\n";
+              out << "                    \"param3\": " << prims[idx+2] << "\n";
+              out << "                  }" << (cv < xpd.numCVs - 1 ? "," : "") << "\n";
+              idx += 3;
+            }
+            out << "                ],\n";
+          }
+
+          // Width/scale parameters
+          if (idx + 4 <= offset + floats_per_prim) {
+            out << "                \"widthScale\": {\n";
+            out << "                  \"base\": " << prims[idx] << ",\n";
+            out << "                  \"tip\": " << prims[idx+1] << ",\n";
+            out << "                  \"param1\": " << prims[idx+2] << ",\n";
+            out << "                  \"param2\": " << prims[idx+3] << "\n";
+            out << "                }";
+            idx += 4;
+
+            // Check if there's more data
+            if (idx < offset + floats_per_prim) {
+              out << ",\n";
+            } else {
+              out << "\n";
+            }
+          }
+
+          // Remaining data
+          if (idx < offset + floats_per_prim) {
+            out << "                \"additionalAttributes\": [";
+            bool first = true;
+            while (idx < offset + floats_per_prim) {
+              if (!first) out << ", ";
+              out << prims[idx++];
+              first = false;
+            }
+            out << "]\n";
+          }
+
+          out << "              }\n";  // End guideInfo
+        }
+
+        out << "            }" << (p < num_prims_in_block - 1 ? "," : "") << "\n";
+      }
+
+      out << "          ]\n";  // End primitives array
+      out << "        }" << (b < xpd.numBlocks - 1 ? "," : "") << "\n";
+    }
+
+    out << "      ]\n";  // End blocks array
+    out << "    }" << (f < xpd.numFaces - 1 ? "," : "") << "\n";
+  }
+
+  out << "  ]\n";  // End faces array
+  out << "}\n";     // End JSON document
+
+  out.close();
+  std::cout << "JSON output written successfully to: " << output_filename << "\n";
 }
 
 static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
@@ -390,7 +697,7 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   // Write the main sample
   schema.set(sample);
 
-  std::cout << "Alembic output written successfully.\n";
+  std::cout << "Alembic output written successfully to: " << output_filename << "\n";
   std::cout << "  Curves: " << nVertices.size() << "\n";
   std::cout << "  Total CVs: " << positions.size() << "\n";
   std::cout << "  Clumps: " << clumpUVtoID.size() << "\n";
@@ -399,42 +706,60 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
   std::cout << "  Periodicity: Non-periodic\n";
 }
 
+static void printFileInfo(const tiny_xpd::XPDHeader &xpd) {
+  std::cout << "\n=== XPD File Information ===\n\n";
+  std::cout << "Header:\n";
+  std::cout << "  File version: " << int(xpd.fileVersion) << "\n";
+  std::cout << "  Primitive type: " << PrintPrimType(xpd.primType) << "\n";
+  std::cout << "  Primitive version: " << int(xpd.primVersion) << "\n";
+  std::cout << "  Time: " << xpd.time << "\n";
+  std::cout << "  Number of CVs: " << xpd.numCVs << "\n";
+  std::cout << "  Coordinate space: " << PrintCoordSpace(xpd.coordSpace) << "\n";
+  std::cout << "  Number of blocks: " << xpd.numBlocks << "\n";
+  std::cout << "  Number of faces: " << xpd.numFaces << "\n\n";
+
+  std::cout << "Blocks:\n";
+  for (size_t i = 0; i < xpd.block.size(); i++) {
+    std::cout << "  [" << i << "] \"" << xpd.block[i] << "\" (primSize=" << xpd.primSize[i] << ")\n";
+  }
+  std::cout << "\n";
+
+  std::cout << "Keys:\n";
+  for (size_t i = 0; i < xpd.key.size(); i++) {
+    std::cout << "  [" << i << "] \"" << xpd.key[i] << "\"\n";
+  }
+  std::cout << "\n";
+
+  std::cout << "Face data:\n";
+  size_t total_prims = 0;
+  for (size_t i = 0; i < xpd.numFaces; i++) {
+    std::cout << "  Face " << i << " (faceId=" << xpd.faceid[i] << "): "
+              << xpd.numPrims[i] << " primitives\n";
+    total_prims += xpd.numPrims[i];
+  }
+  std::cout << "\nTotal primitives: " << total_prims << "\n";
+}
+
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " input.xpd [output.abc]\n";
-    std::cerr << "  If output.abc is not specified, output will be <input_basename>.abc\n";
-    return EXIT_FAILURE;
+  Options opts = parseCommandLine(argc, argv);
+
+  if (opts.show_help || argc < 2) {
+    printUsage(argv[0]);
+    return (argc < 2) ? EXIT_FAILURE : EXIT_SUCCESS;
   }
 
-  std::string xpd_filename = argv[1];
-
-  // Determine output filename
-  std::string output_filename;
-  if (argc >= 3) {
-    output_filename = argv[2];
-  } else {
-    // Generate output filename from input filename
-    size_t last_dot = xpd_filename.find_last_of('.');
-    if (last_dot != std::string::npos) {
-      output_filename = xpd_filename.substr(0, last_dot) + ".abc";
-    } else {
-      output_filename = xpd_filename + ".abc";
-    }
-  }
-
-  std::cout << "Reading XPD file: " << xpd_filename << "\n";
-  std::cout << "Output will be written to: " << output_filename << "\n\n";
+  std::cout << "Reading XPD file: " << opts.input_file << "\n";
 
   std::string err;
   tiny_xpd::XPDHeader xpd_header;
   std::vector<uint8_t> xpd_data;
 
-  if (!tiny_xpd::ParseXPDFromFile(xpd_filename, &xpd_header, &xpd_data, &err)) {
+  if (!tiny_xpd::ParseXPDFromFile(opts.input_file, &xpd_header, &xpd_data, &err)) {
     if (!err.empty()) {
       std::cerr << "Parse error message: " << err << "\n";
     }
 
-    std::cerr << "Failed to parse XPD file : " << xpd_filename << "\n";
+    std::cerr << "Failed to parse XPD file: " << opts.input_file << "\n";
     return EXIT_FAILURE;
   }
 
@@ -443,16 +768,38 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  std::cout << "File info:\n";
-  std::cout << "  primType: " << PrintPrimType(xpd_header.primType) << "\n";
-  std::cout << "  primVersion: " << int(xpd_header.primVersion) << "\n";
-  std::cout << "  numCVs: " << xpd_header.numCVs << "\n";
-  std::cout << "  numFaces: " << xpd_header.numFaces << "\n";
-  std::cout << "  numBlocks: " << xpd_header.numBlocks << "\n\n";
+  // Info only mode
+  if (opts.info_only) {
+    printFileInfo(xpd_header);
+    return EXIT_SUCCESS;
+  }
 
-  WriteXPDtoAlembic(xpd_header, xpd_data, output_filename);
+  std::cout << "Output file: " << opts.output_file << "\n\n";
 
-  std::cout << "\nDone! Output saved to: " << output_filename << "\n";
+  // JSON only mode
+  if (opts.json_only) {
+    WriteDetailedXPDtoJSON(xpd_header, xpd_data, opts.output_file);
+    std::cout << "\nDone!\n";
+    return EXIT_SUCCESS;
+  }
+
+  // Default: Write Alembic
+  WriteXPDtoAlembic(xpd_header, xpd_data, opts.output_file);
+
+  // Also write debug JSON if requested
+  if (opts.debug_json) {
+    // Generate debug JSON filename from input filename
+    size_t last_dot = opts.input_file.find_last_of('.');
+    std::string base = (last_dot != std::string::npos) ?
+                       opts.input_file.substr(0, last_dot) :
+                       opts.input_file;
+    std::string json_filename = base + "_debug.json";
+
+    std::cout << "\n";
+    WriteDetailedXPDtoJSON(xpd_header, xpd_data, json_filename);
+  }
+
+  std::cout << "\nDone!\n";
 
   return EXIT_SUCCESS;
 }

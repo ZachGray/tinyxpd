@@ -2,6 +2,7 @@
 
 ## Overview
 This document describes the data format for XGen spline primitives stored in XPD files (version 3).
+This is a best guess LLM summary
 
 ## File Structure
 
@@ -26,7 +27,7 @@ String identifiers for data attributes:
 - `vertex float xgClumpingWeight`: Clumping weight values
 - Additional custom keys as needed
 
-## Primitive Data Layout (51 floats per spline)
+## Primitive Data Layout
 
 ### 1. Primitive Identification (3 floats)
 - **primitiveId** (1 float): Unique ID for this spline primitive
@@ -123,7 +124,7 @@ Data is organized by mesh faces:
 ## Usage Notes
 
 ### Reading Primitive Data
-Each primitive is exactly `primSize` floats (51 in this case). The data is tightly packed with no headers or delimiters between primitives.
+Each primitive is exactly `primSize` floats. The data is tightly packed with no headers or delimiters between primitives.
 
 ### Coordinate Spaces
 - **Object Space**: Default XGen space, relative to the geometry

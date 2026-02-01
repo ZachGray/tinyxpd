@@ -17,7 +17,10 @@
       "Bash(del /F /Q CMakeCache.txt)",
       "Bash(./xpd_reader_abc.exe:*)",
       "Bash(dir:*)",
-      "Bash(x64-Release\\\\xpd_reader_abc.exe:*)"
+      "Bash(x64-Release\\\\xpd_reader_abc.exe:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(./xpd_to_abc.exe:*)"
     ]
   }
 }

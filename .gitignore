@@ -1,8 +1,12 @@
+# ============================================
 # Build directories
+# ============================================
 build/
 out/
 
+# ============================================
 # Visual Studio
+# ============================================
 .vs/
 *.vcxproj
 *.vcxproj.filters
@@ -10,20 +14,78 @@ out/
 *.sln
 CMakeSettings.json
 
-# CMake generated
+# ============================================
+# CMake generated files
+# ============================================
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 
-# Binaries
+# ============================================
+# Binaries and libraries
+# ============================================
 *.exe
 *.dll
 *.lib
 *.pdb
 *.ilk
 *.exp
+*.o
+*.a
+*.so
+*.dylib
 
-# OS
+# ============================================
+# Generated outputs (keep tests/outputs/ clean)
+# ============================================
+*.abc
+*.json
+tests/outputs/*
+!tests/outputs/.gitignore
+!tests/outputs/README.md
+
+# ============================================
+# Temporary files
+# ============================================
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
 Thumbs.db
 
+# ============================================
+# IDE and editor files
+# ============================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
 
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
+
+# ============================================
+# Documentation build outputs
+# ============================================
+docs/_build/
+docs/.doctrees/
+
+# ============================================
+# Package/distribution
+# ============================================
+dist/
+*.tar.gz
+*.zip
+
+# ============================================
+# Logs
+# ============================================
+*.log
