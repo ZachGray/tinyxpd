@@ -1,0 +1,7 @@
+# Ignore all outputs
+*.abc
+*.json
+
+# Except READMEs
+!.gitignore
+!README.md

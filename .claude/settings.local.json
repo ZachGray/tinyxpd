@@ -20,7 +20,12 @@
       "Bash(x64-Release\\\\xpd_reader_abc.exe:*)",
       "Bash(git mv:*)",
       "Bash(git rm:*)",
-      "Bash(./xpd_to_abc.exe:*)"
+      "Bash(./xpd_to_abc.exe:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(build/src/xpd_reader:*)",
+      "Bash(./build/src/Release/xpd_reader_basic.exe:*)",
+      "Bash(./build/src/Release/xpd_to_abc.exe:*)",
+      "Bash(python3:*)"
     ]
   }
 }
