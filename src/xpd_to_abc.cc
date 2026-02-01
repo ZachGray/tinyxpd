@@ -568,34 +568,117 @@ static void WriteXPDtoAlembic(const tiny_xpd::XPDHeader &xpd,
             invalid_width_by_face_id[face_id_int]++;
           }
 
-          // Try to read width data regardless of guide status
-          if (width_offset + 1 < floats_per_prim) {
-            float base_width = prims[offset + width_offset];
-            float tip_width = prims[offset + width_offset + 1];
+          // Extract width scale parameters (4 floats: base, tip, param1, param2)
+          float base_width = 1.0f;
+          float tip_width = 0.0f;
+          float param1_scale = 1.0f;
+          float param2_scale = 1.0f;
 
-            // Duplicate first width (for Catmull-Rom endpoint interpolation)
+          if (width_offset + 3 < floats_per_prim) {
+            base_width = prims[offset + width_offset];
+            tip_width = prims[offset + width_offset + 1];
+            param1_scale = prims[offset + width_offset + 2];
+            param2_scale = prims[offset + width_offset + 3];
+          }
+
+          // Extract CV parameters for per-CV width modulation
+          struct CVParams {
+            float param1;
+            float t;
+            float param3;
+          };
+          std::vector<CVParams> cv_params;
+          bool has_cv_params = false;
+
+          if (cv_params_offset + cv_params_count <= floats_per_prim) {
+            for (size_t cv = 0; cv < xpd.numCVs; cv++) {
+              size_t param_idx = offset + cv_params_offset + (cv * 3);
+              CVParams params;
+              params.param1 = prims[param_idx];
+              params.t = prims[param_idx + 1];
+              params.param3 = prims[param_idx + 2];
+              cv_params.push_back(params);
+
+              // Check if we have actual data (not all zeros)
+              if (std::abs(params.param1) > 0.0001f || std::abs(params.param3) > 0.0001f) {
+                has_cv_params = true;
+              }
+            }
+          }
+
+          // Strategy 1: Use CV parameters for per-CV width modulation
+          if (has_cv_params && !cv_params.empty()) {
+            // Normalize t values to 0-1 range
+            float t_max = cv_params.empty() ? 1.0f : cv_params[xpd.numCVs - 1].t;
+            if (t_max <= 0.0f) t_max = 1.0f;
+
+            // Debug output for first few primitives
+            if (p < 3) {
+              std::cout << "  Primitive " << p << " width info:\n";
+              std::cout << "    Using CV parameters for width modulation\n";
+              std::cout << "    NumCVs: " << xpd.numCVs << "\n";
+              std::cout << "    Base: " << base_width << ", Tip: " << tip_width
+                        << ", param1_scale: " << param1_scale << ", param2_scale: " << param2_scale << "\n";
+              std::cout << "    First 5 CV params (param1, t, param3):\n";
+              for (size_t i = 0; i < std::min(size_t(5), cv_params.size()); i++) {
+                std::cout << "      CV " << i << ": " << cv_params[i].param1
+                          << ", " << cv_params[i].t << ", " << cv_params[i].param3 << "\n";
+              }
+
+              // Show computed widths for verification
+              std::cout << "    Computed widths for first 10 CVs:\n      ";
+              for (size_t i = 0; i < std::min(size_t(10), cv_params.size()); i++) {
+                float t_n = cv_params[i].t / t_max;
+                float lw = base_width * (1.0f - t_n) + tip_width * t_n;
+                float wm = 1.0f + cv_params[i].param1 * param1_scale;
+                float w = lw * wm;
+                std::cout << w << " ";
+              }
+              std::cout << "\n";
+            }
+
+            // Duplicate first width (for Catmull-Rom endpoint)
+            float t_norm = cv_params[0].t / t_max;
+            float linear_width = base_width * (1.0f - t_norm) + tip_width * t_norm;
+            float width_mult = 1.0f + cv_params[0].param1 * param1_scale;
+            float first_width = linear_width * width_mult;
+            widths.push_back(std::max(0.001f, first_width));
+
+            // Calculate width for each CV using parameters
+            for (size_t cv = 0; cv < xpd.numCVs; cv++) {
+              // Normalize t to 0-1 range
+              t_norm = cv_params[cv].t / t_max;
+
+              // Base linear taper
+              linear_width = base_width * (1.0f - t_norm) + tip_width * t_norm;
+
+              // Apply per-CV width modulation using param1 only
+              // (param3 causes negative widths, so we ignore it)
+              width_mult = 1.0f + cv_params[cv].param1 * param1_scale;
+
+              // Combined formula: base_taper * param1_modulation
+              float width = linear_width * width_mult;
+
+              widths.push_back(std::max(0.001f, width));
+            }
+
+            // Duplicate last width (for Catmull-Rom endpoint)
+            widths.push_back(widths.back());
+          }
+          // Strategy 2: Fallback to linear interpolation
+          else {
+            // Duplicate first width
             widths.push_back(base_width);
 
             // Interpolate width along the curve (per-vertex)
             for (size_t cv = 0; cv < xpd.numCVs; cv++) {
               float t = float(cv) / float(xpd.numCVs - 1);
               float width = base_width * (1.0f - t) + tip_width * t;
-              widths.push_back(width);
-            }
-
-            // Duplicate last width (for Catmull-Rom endpoint interpolation)
-            widths.push_back(tip_width);
-          } else {
-            // No width data available, use default width of 0.01
-            // Duplicate first width
-            widths.push_back(0.01f);
-
-            for (size_t cv = 0; cv < xpd.numCVs; cv++) {
-              widths.push_back(0.01f);
+              widths.push_back(std::max(0.001f, width));
             }
 
             // Duplicate last width
-            widths.push_back(0.01f);
+            widths.push_back(widths.back());
           }
         }
       }
